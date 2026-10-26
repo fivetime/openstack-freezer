@@ -99,3 +99,9 @@ class FsLikeStorage(physical.PhysicalStorage, metaclass=abc.ABCMeta):
         # write data matadata to backup_metadata
         with self.open(backup_metadata, 'w') as backup_meta:
             backup_meta.write(json.dumps(headers))
+
+    def get_stream_headers(self, package_name):
+        backup_metadata = "{0}/{1}/metadata".format(self.storage_path,
+                                                    package_name)
+        with self.open(backup_metadata, 'r') as backup_meta:
+            return json.loads(backup_meta.read()) or {}

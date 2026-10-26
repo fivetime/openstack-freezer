@@ -71,3 +71,20 @@ class TestLocalStorage(unittest.TestCase):
         backup_dir, files_dir, work_dir = self.create_dirs()
         storage = local.LocalStorage(backup_dir, work_dir, 10000)
         storage.info()
+
+    def test_get_stream_headers(self):
+        backup_dir, files_dir, work_dir = self.create_dirs()
+        self.addCleanup(self.remove_dirs, work_dir, files_dir, backup_dir)
+        storage = local.LocalStorage(backup_dir, work_dir, 10000)
+        headers = {'x-object-meta-length': '4',
+                   'x-object-meta-freezer-backup-id': 'b1'}
+        storage.add_stream([b'data'], 'vol1/1463018422', headers=headers)
+        self.assertEqual(headers,
+                         storage.get_stream_headers('vol1/1463018422'))
+
+    def test_get_stream_headers_none_stored(self):
+        backup_dir, files_dir, work_dir = self.create_dirs()
+        self.addCleanup(self.remove_dirs, work_dir, files_dir, backup_dir)
+        storage = local.LocalStorage(backup_dir, work_dir, 10000)
+        storage.add_stream([b'data'], 'vol1/1463018422')
+        self.assertEqual({}, storage.get_stream_headers('vol1/1463018422'))

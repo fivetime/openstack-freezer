@@ -179,6 +179,14 @@ class SwiftStorage(physical.PhysicalStorage):
         self.swift().put_object(container=full_path, obj=objname, contents='',
                                 content_length=len(''), headers=headers)
 
+    def get_stream_headers(self, package_name):
+        # Swift keeps only the x-object-meta-* headers of the manifest
+        # add_stream put, and returns them in lower case.
+        objname = package_name.rsplit('/', 1)[1]
+        return self.swift().head_object(
+            self.container,
+            "{0}/{1}/{2}".format(self.segments, package_name, objname))
+
     def backup_blocks(self, backup):
         """
 

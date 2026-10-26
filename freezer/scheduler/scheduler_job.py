@@ -438,18 +438,20 @@ class Job(object):
         if os_trust_id:
             freezer_action['os_trust_id'] = os_trust_id
 
+        # The backups of these modes record the id of their freezer-api
+        # record, which removing them reports for it to be deleted.
         if action_name == 'backup' \
-                and action_mode == 'cindernative':
+                and action_mode in ('cindernative', 'cinder'):
             if not freezer_action.get('backup_id'):
+                vol_id_key = '{0}_vol_id'.format(action_mode)
                 initial_doc = {
                     'status': 'creating',
-                    'mode': 'cindernative',
+                    'mode': action_mode,
                     'action': 'backup',
-                    'backup_media': 'cindernative',
+                    'backup_media': action_mode,
                     'backup_name': freezer_action.get('backup_name'),
                     'container': freezer_action.get('container'),
-                    'cindernative_vol_id': freezer_action.get(
-                        'cindernative_vol_id'),
+                    vol_id_key: freezer_action.get(vol_id_key),
                     'time_stamp': int(time.time()),
                 }
                 try:

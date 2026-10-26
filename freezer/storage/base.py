@@ -187,6 +187,16 @@ class Storage(metaclass=abc.ABCMeta):
     def create_dirs(self, path):
         pass
 
+    def get_stream_headers(self, package_name):
+        """The headers add_stream stored with the stream of package_name.
+
+        :type package_name: str
+        :param package_name: path given to add_stream
+        :rtype: dict
+        """
+        raise NotImplementedError(
+            "{0} storage does not keep stream headers".format(self.type))
+
 
 class Backup(object):
     """

@@ -25,6 +25,9 @@ from freezer.utils import utils
 CONF = cfg.CONF
 LOG = log.getLogger(__name__)
 
+# The header of a cinder backup holding the id of its freezer-api record.
+FREEZER_BACKUP_ID_HEADER = 'x-object-meta-freezer-backup-id'
+
 
 class BackupOs(object):
 
@@ -43,13 +46,14 @@ class BackupOs(object):
         self.storage = storage
         self.temp_resource_prefix = temp_resource_prefix
 
-    def backup_cinder_by_glance(self, volume_id):
+    def backup_cinder_by_glance(self, volume_id, freezer_backup_id=None):
         """
         Implements cinder backup:
             1) Gets a stream of the image from glance
             2) Stores resulted image to the swift as multipart object
 
         :param volume_id: id of volume for backup
+        :param freezer_backup_id: id of the freezer-api record of the backup
         """
         client_manager = self.client_manager
         cinder = client_manager.get_cinder()
@@ -84,6 +88,9 @@ class BackupOs(object):
         attachments = volume.attachments
         if attachments:
             headers['server'] = attachments[0]['server_id']
+        if freezer_backup_id:
+            # Removing the backup reports it, for the record to be deleted.
+            headers[FREEZER_BACKUP_ID_HEADER] = freezer_backup_id
         self.storage.add_stream(stream, package, headers=headers)
         LOG.debug("Deleting temporary snapshot")
         client_manager.clean_snapshot(snapshot)

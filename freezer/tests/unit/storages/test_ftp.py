@@ -282,6 +282,29 @@ class FtpStorageTestCase(unittest.TestCase):
         self.assertTrue(mock_create_dirs.called)
         self.assertTrue(mock_put_file.called)
 
+    @patch("freezer.storage.ftp.BaseFtpStorage.create_dirs")
+    @patch('ftplib.FTP')
+    def test_get_stream_headers_FtpStorage(self, mock_ftp_constructor,
+                                           mock_create_dirs):
+        ftpobj = self.create_ftpstorage_obj()
+        remote = {}
+
+        def put_file(from_path, to_path):
+            with open(from_path, 'rb') as f:
+                remote[to_path] = f.read()
+
+        def get_file(from_path, to_path):
+            with open(to_path, 'wb') as f:
+                f.write(remote[from_path])
+
+        headers = {'x-object-meta-length': '4',
+                   'x-object-meta-freezer-backup-id': 'b1'}
+        with patch.object(ftpobj, 'put_file', side_effect=put_file), \
+                patch.object(ftpobj, 'get_file', side_effect=get_file):
+            ftpobj.add_stream([b'data'], 'vol1/1463018422', headers=headers)
+            self.assertEqual(headers,
+                             ftpobj.get_stream_headers('vol1/1463018422'))
+
 
 class FtpsStorageTestCase(unittest.TestCase):
 

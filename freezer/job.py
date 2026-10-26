@@ -494,10 +494,12 @@ class BackupJob(Job):
                                         self.container,
                                         self.storage,
                                         self.conf.temp_resource_prefix)
+            freezer_backup_id = getattr(self.conf, 'backup_id', None)
             if self.conf.cinder_vol_id:
                 LOG.info('Executing cinder snapshot. Volume ID: {0}'.format(
                          self.conf.cinder_vol_id))
-                backup_os.backup_cinder_by_glance(self.conf.cinder_vol_id)
+                backup_os.backup_cinder_by_glance(self.conf.cinder_vol_id,
+                                                  freezer_backup_id)
             else:
                 executor = futures.ThreadPoolExecutor(
                     max_workers=len(self.cinder_vol_ids))
@@ -506,9 +508,14 @@ class BackupJob(Job):
                     LOG.info('Executing cinder snapshot. Volume ID:'
                              ' {0}'.format(instance_id))
                     futures_list.append(executor.submit(
-                        backup_os.backup_cinder_by_glance(instance_id)))
+                        backup_os.backup_cinder_by_glance(instance_id,
+                                                          freezer_backup_id)))
 
                 futures.wait(futures_list, CONF.timeout)
+            if freezer_backup_id:
+                # The record freezer-scheduler created before the backup
+                # says it is being created.
+                self.conf.status = 'available'
 
         elif backup_media == 'cinderbrick':
             LOG.info('Executing cinder volume backup using os-brick. '
@@ -794,23 +801,22 @@ class AdminJob(Job):
 
         if self.conf.backup_media == 'cinder':
             if self.conf.cinder_vol_id:
+                cinder_vol_ids = [self.conf.cinder_vol_id]
+            else:
+                cinder_vol_ids = self.cinder_vol_ids
+            deleted_ids = []
+            for cinder_vol_id in cinder_vol_ids:
                 old_backups = self.get_cinder_old_backups(
                     timestamp,
-                    self.conf.cinder_vol_id
+                    cinder_vol_id
                 )
-                self.remove_backup_dirs(old_backups,
-                                        self.conf.cinder_vol_id)
-                return {}
-
-            else:
-                for instance_id in self.cinder_vol_ids:
-                    old_backups = self.get_cinder_old_backups(
-                        timestamp,
-                        instance_id
-                    )
-                    self.remove_backup_dirs(old_backups,
-                                            instance_id)
-                return {}
+                for deleted_id in self.remove_backup_dirs(old_backups,
+                                                          cinder_vol_id):
+                    # The backups of the volumes of a backup, and of the
+                    # retries of one, share its record.
+                    if deleted_id not in deleted_ids:
+                        deleted_ids.append(deleted_id)
+            return {'deleted_freezer_backup_ids': deleted_ids}
         hostname_backup_name_set = set()
 
         if self.conf.backup_media == 'nova':
@@ -855,11 +861,34 @@ class AdminJob(Job):
         return old_backups
 
     def remove_backup_dirs(self, backups_to_remove, cinder_vol_id):
+        """
+        :return: ids of the freezer-api records of the removed backups
+        """
         path_prefix = self.get_path_prefix(cinder_vol_id)
+        deleted_ids = []
         for backup_to_remove in backups_to_remove:
+            freezer_backup_id = self.get_cinder_freezer_backup_id(
+                cinder_vol_id, backup_to_remove)
             path_to_remove = "{0}/{1}".format(path_prefix, backup_to_remove)
             LOG.info("Remove backup: {0}".format(path_to_remove))
             self.storage.rmtree(path_to_remove)
+            if freezer_backup_id:
+                deleted_ids.append(freezer_backup_id)
+        return deleted_ids
+
+    def get_cinder_freezer_backup_id(self, cinder_vol_id, backup_dir):
+        """The id of the freezer-api record of a cinder backup.
+
+        None for the backups made without one, or before it was recorded.
+        """
+        try:
+            headers = self.storage.get_stream_headers(
+                "{0}/{1}".format(cinder_vol_id, backup_dir))
+        except Exception as e:
+            LOG.warning("Could not read the headers of backup {0} of volume "
+                        "{1}: {2}".format(backup_dir, cinder_vol_id, e))
+            return None
+        return (headers or {}).get(backup.FREEZER_BACKUP_ID_HEADER)
 
     def get_path_prefix(self, cinder_vol_id):
         if self.storage.type == 'swift':

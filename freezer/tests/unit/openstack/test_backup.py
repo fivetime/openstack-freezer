@@ -159,3 +159,16 @@ class TestBackup(commons.FreezerBaseTestCase):
                 force=True,
                 metadata=metadata
             )
+
+    def test_backup_cinder_by_glance_records_freezer_backup_id(self):
+        self.bakup_os.storage.add_stream = mock.Mock()
+        self.bakup_os.backup_cinder_by_glance(35, freezer_backup_id='b1')
+        _, kwargs = self.bakup_os.storage.add_stream.call_args
+        self.assertEqual(
+            'b1', kwargs['headers'][backup.FREEZER_BACKUP_ID_HEADER])
+
+    def test_backup_cinder_by_glance_without_freezer_backup_id(self):
+        self.bakup_os.storage.add_stream = mock.Mock()
+        self.bakup_os.backup_cinder_by_glance(35)
+        _, kwargs = self.bakup_os.storage.add_stream.call_args
+        self.assertNotIn(backup.FREEZER_BACKUP_ID_HEADER, kwargs['headers'])

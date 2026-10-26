@@ -149,3 +149,41 @@ class TestSwiftStorageRmtree(unittest.TestCase):
         self.storage.rmtree(
             'mycontainer/data/engine/host/1467649589')
         self.swift_conn.delete_object.assert_not_called()
+
+
+class FakeSwiftObjects(object):
+    """Objects by their path, as swiftclient joins container and name."""
+
+    def __init__(self):
+        self.objects = {}
+
+    def put_object(self, container, obj, contents, content_length=None,
+                   headers=None):
+        self.objects['{0}/{1}'.format(container, obj)] = dict(headers or {})
+
+    def head_object(self, container, obj):
+        headers = self.objects['{0}/{1}'.format(container, obj)]
+        # Swift keeps only the object metadata, in lower case.
+        return {k.lower(): v for k, v in headers.items()
+                if k.lower().startswith('x-object-meta-')}
+
+
+class TestSwiftStorageStreamHeaders(unittest.TestCase):
+
+    def setUp(self):
+        self.client_manager = mock.Mock()
+        self.swift_conn = FakeSwiftObjects()
+        self.client_manager.create_swift.return_value = self.swift_conn
+        self.storage = swift.SwiftStorage(
+            self.client_manager, 'mycontainer', 1024, skip_prepare=True)
+        self.storage.upload_chunk = mock.Mock()
+
+    def test_get_stream_headers(self):
+        self.storage.add_stream(
+            [b'data'], 'vol1/1463018422',
+            headers={'x-object-meta-length': '4',
+                     'x-object-meta-freezer-backup-id': 'b1',
+                     'volume_name': 'vol'})
+        headers = self.storage.get_stream_headers('vol1/1463018422')
+        self.assertEqual('b1', headers['x-object-meta-freezer-backup-id'])
+        self.assertEqual('4', headers['x-object-meta-length'])

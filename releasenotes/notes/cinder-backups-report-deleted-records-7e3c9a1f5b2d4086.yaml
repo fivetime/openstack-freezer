@@ -1,0 +1,10 @@
+---
+fixes:
+  - |
+    Removing ``cinder`` mode backups now deletes their records in
+    ``freezer-api``, as removing ``cindernative`` backups already did.
+    ``freezer-scheduler`` creates the record of a ``cinder`` backup before
+    running it, ``freezer-agent`` stores its id with the backup, and the
+    admin action reports the ids of the backups it removes. Backups made
+    before this change keep no id, their records have to be deleted by
+    hand.

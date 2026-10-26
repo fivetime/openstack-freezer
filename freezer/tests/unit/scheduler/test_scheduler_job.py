@@ -302,6 +302,40 @@ class TestSchedulerJob1(unittest.TestCase):
                 'allocated_b123',
                 job_action['freezer_action'].get('backup_id'))
 
+    def test_execute_job_action_pre_creates_cinder_backup(self):
+        job_action = {
+            'freezer_action': {
+                'action': 'backup',
+                'mode': 'cinder',
+                'backup_name': 'my_backup',
+                'container': 'my_container',
+                'cinder_vol_id': 'vol_123'
+            }
+        }
+        self.scheduler.create_backup_record = (
+            mock.MagicMock(return_value='allocated_b123'))
+        with mock.patch('tempfile.NamedTemporaryFile') as mock_tmp, \
+                mock.patch('freezer.utils.utils.delete_file'), \
+                mock.patch('subprocess.Popen') as mock_popen:
+            mock_tmp.return_value.__enter__.return_value.name = (
+                '/tmp/fake_cfg')
+            mock_proc = mock.MagicMock()
+            mock_proc.communicate.return_value = (
+                '{"status": "available"}', '')
+            mock_proc.returncode = 0
+            mock_popen.return_value = mock_proc
+
+            self.job.execute_job_action(job_action)
+            self.scheduler.create_backup_record.assert_called_once()
+            initial_doc = self.scheduler.create_backup_record.call_args[0][0]
+            self.assertEqual('cinder', initial_doc['mode'])
+            self.assertEqual('cinder', initial_doc['backup_media'])
+            self.assertEqual('vol_123', initial_doc['cinder_vol_id'])
+            self.assertEqual('creating', initial_doc['status'])
+            self.assertEqual(
+                'allocated_b123',
+                job_action['freezer_action'].get('backup_id'))
+
     def test_execute_job_action_pre_create_fails_continues(self):
         job_action = {
             'freezer_action': {

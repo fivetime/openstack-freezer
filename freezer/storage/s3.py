@@ -148,6 +148,15 @@ class S3Storage(physical.PhysicalStorage):
             ContentLength=len(json.dumps(headers)),
         )
 
+    def get_stream_headers(self, package_name):
+        backup_basedir = package_name \
+            if self.get_object_prefix() == '' \
+            else "{0}/{1}".format(self.get_object_prefix(), package_name)
+        metadata = self.get_object(
+            bucket_name=self.get_bucket_name(),
+            key="{0}/metadata".format(backup_basedir))
+        return json.loads(metadata['Body'].read()) or {}
+
     def upload_stream(self, backup_basepath, stream):
         upload_id = self.get_s3_connection().create_multipart_upload(
             Bucket=self.get_bucket_name(),

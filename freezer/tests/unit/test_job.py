@@ -17,10 +17,15 @@
 Freezer main.py related tests
 """
 
+import os
+import shutil
+import tempfile
 from unittest import mock
 from unittest.mock import patch
 
 from freezer import job as jobs
+from freezer.openstack import backup
+from freezer.storage import local
 from freezer.tests import commons
 from freezer.utils import utils
 
@@ -177,6 +182,38 @@ class TestBackupJob(TestJob):
 
         self.assertEqual('test-cinder-vol-uuid', metadata.get('cinder_vol_id'))
         self.assertEqual('cinder', metadata.get('mode'))
+
+    def _execute_cinder(self, mock_backup_os, backup_id):
+        backup_opt = commons.BackupOpt1()
+        backup_opt.mode = 'cinder'
+        backup_opt.sync = False
+        backup_opt.__version__ = '1.0.0'
+        backup_opt.backup_media = 'cinder'
+        backup_opt.cinder_vol_id = 'vol1'
+        backup_opt.backup_id = backup_id
+        backup_opt.incremental = False
+        backup_opt.max_level = None
+        backup_opt.always_level = None
+        with mock.patch('openstack.connection.Connection'):
+            job = jobs.BackupJob(backup_opt, backup_opt.storage)
+            return job.execute()
+
+    @mock.patch('freezer.openstack.backup.BackupOs')
+    def test_execute_cinder_records_backup_id(self, mock_backup_os):
+        metadata = self._execute_cinder(mock_backup_os, 'b1')
+        mock_backup_os.return_value.backup_cinder_by_glance.\
+            assert_called_once_with('vol1', 'b1')
+        self.assertEqual('b1', metadata.get('backup_id'))
+        # The record freezer-scheduler created says 'creating'.
+        self.assertEqual('available', metadata.get('status'))
+
+    @mock.patch('freezer.openstack.backup.BackupOs')
+    def test_execute_cinder_without_backup_id(self, mock_backup_os):
+        metadata = self._execute_cinder(mock_backup_os, None)
+        mock_backup_os.return_value.backup_cinder_by_glance.\
+            assert_called_once_with('vol1', None)
+        self.assertNotIn('backup_id', metadata)
+        self.assertNotIn('status', metadata)
 
     def test_execute_glance_metadata_includes_image_id(self):
         """Backup metadata for glance mode must record glance_image_id so
@@ -654,6 +691,56 @@ class TestAdminJob(TestJob):
                                                  job.remove_timestamp,
                                                  freezer_only=True)
                 self.assertEqual({'deleted_freezer_backup_ids': ['fid2']}, res)
+
+    def _cinder_admin_job(self, storage):
+        backup_opt = commons.BackupOpt1()
+        backup_opt.backup_media = 'cinder'
+        backup_opt.cinder_vol_id = 'vol1'
+        backup_opt.remove_before_date = None
+        backup_opt.remove_from_date = None
+        backup_opt.remove_older_than = '0'
+        with mock.patch('openstack.connection.Connection'):
+            return jobs.AdminJob(backup_opt, storage)
+
+    def _local_storage(self):
+        storage_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, storage_dir)
+        return local.LocalStorage(storage_dir, storage_dir, 10000)
+
+    def test_execute_cinder_reports_deleted_freezer_backups(self):
+        storage = self._local_storage()
+        backup_opt = commons.BackupOpt1()
+        # A backup made with the record freezer-scheduler created...
+        backup.BackupOs(backup_opt.client_manager, backup_opt.container,
+                        storage, backup_opt.temp_resource_prefix).\
+            backup_cinder_by_glance('vol1', freezer_backup_id='b1')
+        # ...an earlier attempt of it, and one made without a record.
+        storage.add_stream(
+            [b'data'], 'vol1/1000',
+            headers={backup.FREEZER_BACKUP_ID_HEADER: 'b1'})
+        storage.add_stream([b'data'], 'vol1/2000', headers={})
+
+        res = self._cinder_admin_job(storage).execute()
+
+        self.assertEqual({'deleted_freezer_backup_ids': ['b1']}, res)
+        self.assertEqual(
+            [], os.listdir(os.path.join(storage.storage_path, 'vol1')))
+
+    def test_execute_cinder_unreadable_headers(self):
+        storage = self._local_storage()
+        storage.add_stream(
+            [b'data'], 'vol1/1000',
+            headers={backup.FREEZER_BACKUP_ID_HEADER: 'b1'})
+        job = self._cinder_admin_job(storage)
+
+        with mock.patch.object(storage, 'get_stream_headers',
+                               side_effect=IOError('unreadable')):
+            res = job.execute()
+
+        # The backup is removed all the same.
+        self.assertEqual({'deleted_freezer_backup_ids': []}, res)
+        self.assertEqual(
+            [], os.listdir(os.path.join(storage.storage_path, 'vol1')))
 
 
 class TestExecJob(TestJob):

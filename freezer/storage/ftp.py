@@ -258,6 +258,18 @@ class BaseFtpStorage(fslike.FsLikeStorage):
         finally:
             shutil.rmtree(tmpdir)
 
+    def get_stream_headers(self, package_name):
+        tmpdir = self._create_tempdir()
+        try:
+            backup_metadata = "{0}/{1}/metadata".format(self.storage_path,
+                                                        package_name)
+            metadata = utils.path_join(tmpdir, "metadata")
+            self.get_file(backup_metadata, metadata)
+            with open(metadata, 'r') as backup_meta:
+                return json.loads(backup_meta.read()) or {}
+        finally:
+            shutil.rmtree(tmpdir)
+
 
 class FtpStorage(BaseFtpStorage):
     """
