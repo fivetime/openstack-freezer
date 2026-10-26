@@ -18,6 +18,8 @@ Freezer restore.py related tests
 """
 from unittest import mock
 
+from openstack import exceptions as sdk_exceptions
+
 from freezer.openstack import restore
 from freezer.tests import commons
 from freezer.utils import utils
@@ -36,6 +38,34 @@ class TestRestore(commons.FreezerBaseTestCase):
         backup_opt = commons.BackupOpt1()
         restore.RestoreOs(backup_opt.client_manager, backup_opt.container,
                           backup_opt.storage, backup_opt.temp_resource_prefix)
+
+    def _restore_cinder_by_glance(self, delete_image_error=None):
+        client_manager = mock.Mock()
+        client_manager.get_cinder.return_value.create_volume.return_value = \
+            mock.Mock(id='volume', status='available')
+        glance = client_manager.get_glance.return_value
+        glance.delete_image.side_effect = delete_image_error
+        restore_os = restore.RestoreOs(client_manager, 'container',
+                                       'swift', 'prefix')
+        with mock.patch.object(
+                restore_os, '_create_image',
+                return_value=({'x-object-meta-length': '1073741824'},
+                              Image(), 1500000000)):
+            restore_os.restore_cinder_by_glance('volume', 1500000000)
+        glance.delete_image.assert_called_once_with('test')
+
+    def test_restore_cinder_by_glance_deletes_temporary_image(self):
+        self._restore_cinder_by_glance()
+
+    def test_restore_cinder_by_glance_temporary_image_in_use(self):
+        # The volume is a copy-on-write clone of the image.
+        self._restore_cinder_by_glance(
+            sdk_exceptions.ConflictException('image in use'))
+
+    def test_restore_cinder_by_glance_delete_image_fails(self):
+        self.assertRaises(sdk_exceptions.HttpException,
+                          self._restore_cinder_by_glance,
+                          sdk_exceptions.HttpException('server error'))
 
     def test_restore_cinder_by_glance_from_local(self):
         backup_opt = commons.BackupOpt1()

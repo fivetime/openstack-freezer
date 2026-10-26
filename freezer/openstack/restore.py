@@ -22,6 +22,7 @@ import shutil
 import tempfile
 import time
 
+from openstack import exceptions as sdk_exceptions
 from oslo_config import cfg
 from oslo_log import log
 from oslo_serialization import jsonutils as json
@@ -312,4 +313,12 @@ class RestoreOs(object):
                     LOG.warning("Exception getting volume status")
 
         LOG.info("Deleting temporary image {}".format(image.id))
-        self.client_manager.get_glance().delete_image(image.id)
+        try:
+            self.client_manager.get_glance().delete_image(image.id)
+        except sdk_exceptions.ConflictException as e:
+            # When Glance and Cinder share a Ceph cluster, the volume is a
+            # copy-on-write clone of the image, which cannot be deleted
+            # while the volume exists. The volume is restored all the same.
+            LOG.warning("Temporary image {0} is in use and was not "
+                        "deleted, it can be deleted once volume {1} is: "
+                        "{2}".format(image.id, volume.id, e))

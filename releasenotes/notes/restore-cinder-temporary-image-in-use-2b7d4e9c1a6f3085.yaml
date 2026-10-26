@@ -1,0 +1,10 @@
+---
+fixes:
+  - |
+    A cinder restore through Glance no longer fails when the temporary image
+    cannot be deleted because it is in use. When Glance and Cinder share a
+    Ceph cluster, the restored volume is a copy-on-write clone of the image,
+    and Glance refuses to delete the image while the volume exists; the
+    restore was reported failed and retried, creating a new volume each
+    time, although the volume had been restored. The image is left in place
+    with a warning and can be deleted once the volume is.
